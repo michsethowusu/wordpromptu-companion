@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+  <title>Wordpromptu Companion</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 20px 24px 14px;
+      border-bottom: 1px solid #2a2a4a;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #a78bfa;
+      letter-spacing: 0.5px;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      font-size: 13px;
+      color: #888;
+    }
+
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      flex-shrink: 0;
+    }
+    .dot.connected { background: #22c55e; }
+
+    .port-label {
+      margin-left: auto;
+      font-size: 12px;
+      color: #555;
+    }
+
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #666;
+      margin-bottom: 12px;
+    }
+
+    .screen-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .screen-card {
+      background: #16213e;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .screen-card.active {
+      border-color: #7c3aed;
+    }
+
+    .screen-icon {
+      font-size: 28px;
+      flex-shrink: 0;
+    }
+
+    .screen-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .screen-name {
+      font-weight: 600;
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .screen-meta {
+      font-size: 12px;
+      color: #777;
+      margin-top: 2px;
+    }
+
+    .screen-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:active { opacity: 0.7; }
+
+    .btn-open   { background: #7c3aed; color: #fff; }
+    .btn-close  { background: #374151; color: #e0e0e0; }
+    .btn-identify { background: #1e3a5f; color: #93c5fd; }
+
+    footer {
+      padding: 14px 24px;
+      border-top: 1px solid #2a2a4a;
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-close-all {
+      background: #7f1d1d;
+      color: #fca5a5;
+      flex: 1;
+    }
+
+    .btn-identify-all {
+      background: #1e3a5f;
+      color: #93c5fd;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #555;
+      padding: 40px 0;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Wordpromptu Companion</h1>
+    <div class="status-bar">
+      <div class="dot" id="conn-dot"></div>
+      <span id="conn-label">Waiting for Wordpromptu…</span>
+      <span class="port-label" id="port-label"></span>
+    </div>
+  </header>
+
+  <main>
+    <div class="section-title">Connected Screens</div>
+    <div class="screen-list" id="screen-list">
+      <div class="empty-state">Loading screens…</div>
+    </div>
+  </main>
+
+  <footer>
+    <button class="btn-identify-all" id="btn-identify">Identify All</button>
+    <button class="btn-close-all"    id="btn-close-all">Close All Projectors</button>
+  </footer>
+
+  <script>
+    let currentState = { screens: [], connected: false, projectors: [], wsPort: 8765 }
+
+    function render(state) {
+      currentState = state
+
+      // Status bar
+      const dot   = document.getElementById('conn-dot')
+      const label = document.getElementById('conn-label')
+      const port  = document.getElementById('port-label')
+      if (state.connected) {
+        dot.classList.add('connected')
+        label.textContent = 'Connected to Wordpromptu'
+      } else {
+        dot.classList.remove('connected')
+        label.textContent = 'Waiting for Wordpromptu…'
+      }
+      port.textContent = `Port ${state.wsPort || 8765}`
+
+      // Screen list
+      const list = document.getElementById('screen-list')
+      if (!state.screens || state.screens.length === 0) {
+        list.innerHTML = '<div class="empty-state">No screens detected</div>'
+        return
+      }
+
+      list.innerHTML = state.screens.map(s => {
+        const isOpen = state.projectors.includes(s.index)
+        return `
+          <div class="screen-card ${isOpen ? 'active' : ''}">
+            <div class="screen-icon">${s.is_primary ? '🖥️' : '📺'}</div>
+            <div class="screen-info">
+              <div class="screen-name">${s.name}</div>
+              <div class="screen-meta">${s.width} × ${s.height} &nbsp;•&nbsp; ${s.x},${s.y} ${isOpen ? '&nbsp;• <span style="color:#a78bfa">Projector open</span>' : ''}</div>
+            </div>
+            <div class="screen-actions">
+              ${isOpen
+                ? `<button class="btn-close"  onclick="closeProjector(${s.index})">Close</button>`
+                : `<button class="btn-open"   onclick="openProjector(${s.index})">Open</button>`
+              }
+            </div>
+          </div>`
+      }).join('')
+    }
+
+    function openProjector(idx)  { window.companion.openProjector(idx) }
+    function closeProjector(idx) { window.companion.closeProjector(idx) }
+
+    document.getElementById('btn-identify').addEventListener('click', () => {
+      window.companion.identifyScreens()
+    })
+    document.getElementById('btn-close-all').addEventListener('click', () => {
+      window.companion.closeProjector()
+    })
+
+    // Initial state
+    window.companion.getState().then(render)
+
+    // Live updates pushed from main process
+    window.companion.onStateUpdate(render)
+  </script>
+</body>
+</html>
